@@ -1,0 +1,24 @@
+network:
+  version: 2
+  ethernets:
+    # Red de gestión: NAT con DHCP (Ansible e Internet)
+    gestion:
+      match:
+        macaddress: "${mac_gestion}"
+      dhcp4: true
+    # Red del escenario (muy aislada): IP estática, sin puerta de enlace
+    escenario:
+      match:
+        macaddress: "${mac_escenario}"
+      dhcp4: false
+      addresses: ["${ip_escenario}/24"]
+%{ if mac_captura != "" ~}
+    # Captura del mirror: sin IP (Snort la levanta en modo promiscuo)
+    captura:
+      match:
+        macaddress: "${mac_captura}"
+      dhcp4: false
+      dhcp6: false
+      accept-ra: false
+      link-local: []
+%{ endif ~}

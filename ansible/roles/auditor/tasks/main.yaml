@@ -1,0 +1,22 @@
+- name: Instalar John the Ripper, Hydra y AIDE
+  apt:
+    name: "{{ paquetes_auditor }}"
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+# AIDE necesita una base de datos inicial con el estado "bueno" de los
+# ficheros para luego compararlo (aide --check). Solo se crea la primera vez.
+- name: Crear la base de datos inicial de AIDE (tarda unos minutos)
+  ansible.builtin.shell: >
+    aide --config /etc/aide/aide.conf --init &&
+    cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  args:
+    creates: /var/lib/aide/aide.db
+
+# El paquete trae un timer de systemd que hace la comprobación todos los días
+- name: Activar la comprobación diaria de AIDE
+  ansible.builtin.systemd:
+    name: dailyaidecheck.timer
+    state: started
+    enabled: yes

@@ -1,0 +1,64 @@
+# Máquinas en la red del escenario (las mismas IP que en opentofu/main.tf)
+red_escenario: 10.0.50.0/24
+equipos_escenario:
+  - { nombre: sdi,     ip: 10.0.50.10 }
+  - { nombre: victima, ip: 10.0.50.20 }
+  - { nombre: kali,    ip: 10.0.50.30 }
+  - { nombre: openvas, ip: 10.0.50.40 }
+  - { nombre: auditor, ip: 10.0.50.50 }
+dominio_escenario: escenario.sdi
+victima_ip: 10.0.50.20
+
+# Switch OVS del anfitrión y port mirroring (como en la página de Notion)
+ovs_bridge: ovsbr0
+puerto_captura: tap-captura
+nombre_mirror: espejo
+# Nombre de la máquina del SDI en libvirt (opentofu/main.tf: escenario-<nombre>)
+dominio_sdi: escenario-sdi
+
+# Paquetes comunes a todas las máquinas
+paquetes_comunes:
+  - vim
+  - curl
+  - tcpdump
+  - ethtool
+
+# --- SDI (Snort 3 compilado desde el código fuente) ---
+libdaq_version: v3.0.28
+snort_version: 3.12.4.0
+snort_dir: /usr/local/etc/snort
+snort_log_dir: /var/log/snort
+# Lo que protege Snort: la víctima. EXTERNAL_NET es todo lo demás (el atacante también)
+snort_home_net: "{{ victima_ip }}/32"
+
+# --- Víctima ---
+postgresql_version: 17
+
+# --- OpenVAS (Greenbone Community Containers) ---
+openvas_dir: /opt/greenbone
+openvas_proyecto: greenbone-community-edition
+openvas_admin_password: admin   # cámbiala si el escenario va a estar mucho tiempo levantado
+
+# --- Atacante: metapaquete de Kali con las herramientas de línea de comandos ---
+kali_metapaquete: kali-linux-headless
+
+# --- Auditor ---
+paquetes_auditor:
+  - john
+  - hydra
+  - aide
+  - aide-common
+
+# --- Alertas por correo (SDI y OpenVAS, Fase 7 / sección de OpenVAS en Notion) ---
+# Toda la parte de correo es OPCIONAL: solo se configura si smtp_password tiene valor.
+# Como lleva una contraseña, lo suyo es ponerla con ansible-vault y NO en claro:
+#   ansible-vault encrypt_string 'abcdefghijklmnop' --name smtp_password
+# y pegar el resultado aquí. Es una contraseña de aplicación de Gmail (16 letras,
+# sin espacios), con la verificación en dos pasos activada en la cuenta remitente.
+smtp_remitente: verdeblancoyazul@gmail.com     # la cuenta que envía (from/user)
+smtp_destinatario: jesusfigueroaroldan@gmail.com  # donde llegan las alertas
+smtp_host: smtp.gmail.com
+smtp_port: 587
+smtp_password: ""                               # vacío -> no se configura el correo
+# Si está a true pero smtp_password está vacío, los roles avisan y se saltan el correo
+correo_habilitado: "{{ smtp_password | length > 0 }}"

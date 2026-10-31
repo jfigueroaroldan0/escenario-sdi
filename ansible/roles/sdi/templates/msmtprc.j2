@@ -1,0 +1,15 @@
+# Gestionado por Ansible
+defaults
+auth           on
+tls            on
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        /var/log/msmtp.log
+
+account        gmail
+host           {{ smtp_host }}
+port           {{ smtp_port }}
+from           {{ smtp_remitente }}
+user           {{ smtp_remitente }}
+password       {{ smtp_password }}
+
+account default : gmail

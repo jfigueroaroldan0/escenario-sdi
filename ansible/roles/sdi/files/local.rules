@@ -1,0 +1,15 @@
+# Gestionado por Ansible. Reglas propias: SID desde 1000000.
+# priority:N -> número más bajo = más grave. El vigilante de correo (snort-mail)
+# solo envía las de priority:1, así lo grave llega al correo y el ruido no.
+
+# --- Ruido (quedan en el log, no generan correo) ---
+alert icmp $EXTERNAL_NET any -> $HOME_NET any ( msg:"LOCAL Ping detectado hacia el servidor"; priority:3; sid:1000001; rev:2; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET 80 ( msg:"LOCAL Acceso al servidor web"; flow:to_server,established; priority:3; sid:1000002; rev:2; )
+
+# --- Sospechoso / grave (priority:1 -> generan correo) ---
+alert tcp $EXTERNAL_NET any -> $HOME_NET 80 ( msg:"LOCAL Peticion a /admin"; flow:to_server,established; content:"/admin"; priority:1; sid:1000003; rev:2; )
+
+# Fuerza bruta contra PostgreSQL: muchos inicios de conexión (SYN) desde el mismo
+# origen en poco tiempo. detection_filter -> una sola alerta aunque sean miles de
+# intentos, no un correo por cada uno. La misma regla vale para SSH cambiando el 5432 por 22.
+alert tcp $EXTERNAL_NET any -> $HOME_NET 5432 ( msg:"LOCAL Posible fuerza bruta contra PostgreSQL"; flow:to_server; flags:S; detection_filter:track by_src, count 20, seconds 10; priority:1; sid:1000040; rev:1; )

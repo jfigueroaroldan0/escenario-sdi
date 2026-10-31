@@ -1,0 +1,48 @@
+# xsltproc lo usa el provider libvirt de OpenTofu para aplicar los ficheros xslt/
+- name: Instalar Open vSwitch y xsltproc
+  apt:
+    name:
+      - openvswitch-switch
+      - xsltproc
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Arrancar Open vSwitch
+  service:
+    name: openvswitch-switch
+    state: started
+    enabled: yes
+
+# Sin IP en el anfitrión, sin NAT ni DHCP: la red del escenario queda muy aislada
+# (la configuración de OVS se guarda en su base de datos y sobrevive a reinicios)
+- name: Crear el switch virtual {{ ovs_bridge }}
+  ansible.builtin.command: ovs-vsctl --may-exist add-br {{ ovs_bridge }}
+  register: add_br
+  changed_when: false
+
+- name: Script que (re)crea el port mirroring hacia el SDI
+  ansible.builtin.template:
+    src: mirror-up.sh.j2
+    dest: /usr/local/sbin/mirror-up.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+# Al reiniciar el SDI (o el anfitrión) su puerto tap-captura se recrea y el
+# mirror se queda sin puerto de salida: el hook de libvirt lo rehace solo
+# cada vez que arranca la máquina del SDI
+- name: Crear el directorio de hooks de libvirt
+  ansible.builtin.file:
+    path: /etc/libvirt/hooks/qemu.d
+    state: directory
+    mode: '0755'
+
+- name: Hook de libvirt que rehace el mirror al arrancar el SDI
+  ansible.builtin.template:
+    src: mirror-sdi.j2
+    dest: /etc/libvirt/hooks/qemu.d/mirror-sdi
+    owner: root
+    group: root
+    mode: '0755'
+  notify: restart libvirtd

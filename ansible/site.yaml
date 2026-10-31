@@ -1,0 +1,44 @@
+# Justo después de "tofu apply" las máquinas pueden estar arrancando y
+# cloud-init usando apt: se espera a que terminen antes de configurarlas.
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: Esperar a que las máquinas respondan por SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    # 0 = correcto, 1 = algún módulo falló, 2 = terminado con avisos
+    - name: Esperar a que termine cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      register: cloudinit
+      changed_when: false
+      failed_when: cloudinit.rc not in [0, 1, 2]
+
+# Con el SDI encendido ya existe el puerto tap-captura: se crea el mirror
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Crear (o rehacer) el port mirroring hacia el SDI
+      ansible.builtin.include_role:
+        name: anfitrion
+        tasks_from: mirror
+
+- hosts: all
+  become: true
+  roles:
+   - role: commons
+
+# Cada máquina aplica su rol (variable "rol" del inventario). Se hace en un
+# solo play para que las cinco se configuren en paralelo: compilar Snort,
+# descargar OpenVAS y pasar a Kali tardan bastante cada uno.
+# strategy: free hace que cada máquina avance a su ritmo; con la estrategia
+# normal (linear) Ansible ejecutaría los roles incluidos de uno en uno.
+- hosts: all
+  become: true
+  strategy: free
+  tasks:
+    - name: Aplicar el rol de la máquina
+      ansible.builtin.include_role:
+        name: "{{ rol }}"

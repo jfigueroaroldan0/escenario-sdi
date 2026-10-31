@@ -1,0 +1,7 @@
+# Gestionado por Ansible.
+# Monta la configuración de msmtp en el contenedor gvmd para que pueda enviar
+# los correos de las alertas (gvmd llama a /usr/sbin/sendmail -> msmtp).
+services:
+  gvmd:
+    volumes:
+      - ./msmtprc:/etc/msmtprc:ro

@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!-- Pone un nombre fijo (${puerto}) al puerto de la tarjeta de captura del SDI.
+     Sin esto se llamaría vnetX y cambiaría en cada arranque, y el mirror de
+     OVS necesita saber a qué puerto enviar la copia del tráfico. -->
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:output omit-xml-declaration="yes" indent="yes"/>
+
+  <xsl:template match="node()|@*">
+    <xsl:copy>
+      <xsl:apply-templates select="node()|@*"/>
+    </xsl:copy>
+  </xsl:template>
+
+  <!-- El provider escribe las MAC en mayúsculas: se comparan en minúsculas -->
+  <xsl:template match="/domain/devices/interface[translate(mac/@address, 'ABCDEF', 'abcdef') = '${lower(mac)}']">
+    <xsl:copy>
+      <xsl:apply-templates select="node()|@*"/>
+      <target dev="${puerto}"/>
+    </xsl:copy>
+  </xsl:template>
+</xsl:stylesheet>

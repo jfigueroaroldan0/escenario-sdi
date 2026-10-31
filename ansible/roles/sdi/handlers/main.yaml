@@ -1,0 +1,11 @@
+- name: restart snort3
+  systemd:
+    name: snort3
+    state: restarted
+    daemon_reload: yes
+
+- name: restart snort-mail
+  systemd:
+    name: snort-mail
+    state: restarted
+    daemon_reload: yes

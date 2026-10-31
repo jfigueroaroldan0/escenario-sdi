@@ -1,0 +1,8 @@
+# Se lanza ANTES de "tofu apply": crea en el anfitrión el switch Open vSwitch
+# al que OpenTofu conecta la red escenario_seguridad.
+#   ansible-playbook preparar-anfitrion.yaml -K
+- hosts: localhost
+  connection: local
+  become: true
+  roles:
+   - role: anfitrion

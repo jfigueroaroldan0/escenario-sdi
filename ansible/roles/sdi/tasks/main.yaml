@@ -1,0 +1,170 @@
+# Debian 13 no trae Snort: se compila Snort 3 (y su libdaq) desde el código fuente
+- name: Instalar las dependencias de compilación de Snort 3
+  apt:
+    name:
+      - build-essential
+      - cmake
+      - git
+      - flex
+      - bison
+      - pkg-config
+      - autoconf
+      - automake
+      - libtool
+      - libpcap-dev
+      - libpcre2-dev
+      - libdumbnet-dev
+      - zlib1g-dev
+      - liblzma-dev
+      - libssl-dev
+      - libhwloc-dev
+      - libluajit-5.1-dev
+      - libmnl-dev
+    state: present
+
+- name: Descargar libdaq {{ libdaq_version }}
+  ansible.builtin.git:
+    repo: https://github.com/snort3/libdaq.git
+    dest: /usr/local/src/libdaq
+    version: "{{ libdaq_version }}"
+    depth: 1
+
+# "creates" hace que solo se compile la primera vez
+- name: Compilar e instalar libdaq
+  ansible.builtin.shell: ./bootstrap && ./configure && make -j{{ ansible_processor_vcpus }} && make install && ldconfig
+  args:
+    chdir: /usr/local/src/libdaq
+    creates: /usr/local/lib/libdaq.so
+
+- name: Descargar Snort {{ snort_version }}
+  ansible.builtin.git:
+    repo: https://github.com/snort3/snort3.git
+    dest: /usr/local/src/snort3
+    version: "{{ snort_version }}"
+    depth: 1
+
+- name: Compilar e instalar Snort 3 (tarda varios minutos)
+  ansible.builtin.shell: >
+    ./configure_cmake.sh --prefix=/usr/local &&
+    cd build && make -j{{ ansible_processor_vcpus }} && make install && ldconfig
+  args:
+    chdir: /usr/local/src/snort3
+    creates: /usr/local/bin/snort
+
+# --- Configuración (Parte 5 de la página de Notion) ---
+
+- name: Definir HOME_NET (lo que protege Snort, la víctima)
+  ansible.builtin.lineinfile:
+    path: "{{ snort_dir }}/snort.lua"
+    regexp: '^HOME_NET\s*='
+    line: "HOME_NET = '{{ snort_home_net }}'"
+  notify: restart snort3
+
+- name: Definir EXTERNAL_NET (todo lo que no es HOME_NET)
+  ansible.builtin.lineinfile:
+    path: "{{ snort_dir }}/snort.lua"
+    regexp: '^EXTERNAL_NET\s*='
+    line: "EXTERNAL_NET = '!' .. HOME_NET"
+  notify: restart snort3
+
+- name: Crear los directorios de reglas y de logs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ snort_dir }}/rules"
+    - "{{ snort_log_dir }}"
+
+- name: Descargar las reglas de la comunidad (Talos)
+  ansible.builtin.unarchive:
+    src: https://www.snort.org/downloads/community/snort3-community-rules.tar.gz
+    dest: /usr/local/src
+    remote_src: yes
+    creates: /usr/local/src/snort3-community-rules/snort3-community.rules
+
+- name: Copiar las reglas de la comunidad
+  ansible.builtin.copy:
+    src: /usr/local/src/snort3-community-rules/snort3-community.rules
+    dest: "{{ snort_dir }}/rules/snort3-community.rules"
+    remote_src: yes
+    mode: '0644'
+  notify: restart snort3
+
+- name: Reglas propias (local.rules)
+  ansible.builtin.copy:
+    src: local.rules
+    dest: "{{ snort_dir }}/rules/local.rules"
+    mode: '0644'
+  notify: restart snort3
+
+# Se añade al final de snort.lua: en Lua, las tablas ips y network definidas
+# aquí sustituyen a las de más arriba. Así cualquier "snort -c snort.lua"
+# (el servicio o uno lanzado a mano) carga las reglas y no descarta el TCP.
+- name: Reglas y checksums del escenario en snort.lua
+  ansible.builtin.blockinfile:
+    path: "{{ snort_dir }}/snort.lua"
+    marker: "-- {mark} ANSIBLE ESCENARIO"
+    insertafter: EOF
+    block: |
+      -- Reglas: las de la comunidad + las propias
+      ips =
+      {
+          variables = default_variables,
+          rules = [[
+              include {{ snort_dir }}/rules/snort3-community.rules
+              include {{ snort_dir }}/rules/local.rules
+          ]]
+      }
+
+      -- Las tarjetas virtuales usan checksum offloading: sin esto Snort descarta
+      -- los paquetes TCP por "bad checksum" y las reglas con flow no saltan
+      network =
+      {
+          checksum_eval = 'none',
+      }
+
+      -- La DAQ entrega cada paquete en cuanto llega. Con el valor por defecto
+      -- (64) espera a juntar 64 y, con el poco tráfico del escenario, las
+      -- alertas tardarían mucho en salir
+      daq =
+      {
+          batch_size = 1,
+      }
+  notify: restart snort3
+
+- name: Quitar local.lua (versión anterior de este rol)
+  ansible.builtin.file:
+    path: "{{ snort_dir }}/local.lua"
+    state: absent
+
+- name: Validar la configuración de Snort
+  ansible.builtin.command: /usr/local/bin/snort -c {{ snort_dir }}/snort.lua -T
+  changed_when: false
+
+- name: Servicio systemd de Snort escuchando la interfaz de captura ({{ iface_captura }})
+  ansible.builtin.template:
+    src: snort3.service.j2
+    dest: /etc/systemd/system/snort3.service
+    mode: '0644'
+  notify: restart snort3
+
+- name: Arrancar Snort y activarlo en el arranque
+  ansible.builtin.systemd:
+    name: snort3
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+# Fase 7 de la página de Notion: alertas por correo. Un vigilante sigue el log de
+# Snort y, por cada alerta grave (priority:1), manda un correo con msmtp.
+- name: Configurar las alertas por correo del SDI
+  ansible.builtin.include_tasks: correo.yaml
+  when: correo_habilitado | bool
+
+- name: Aviso si el correo está desactivado (falta smtp_password)
+  ansible.builtin.debug:
+    msg: >
+      Alertas por correo del SDI desactivadas: define smtp_password en group_vars
+      (contraseña de aplicación de Gmail) para activarlas.
+  when: not (correo_habilitado | bool)

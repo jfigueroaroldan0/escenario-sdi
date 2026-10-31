@@ -1,0 +1,57 @@
+- name: Instalar nginx y PostgreSQL
+  apt:
+    name:
+      - nginx
+      - postgresql
+    state: present
+
+- name: Página de inicio de la víctima
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: /var/www/html/index.html
+    owner: www-data
+    group: www-data
+    mode: '0644'
+
+- name: Arrancar nginx
+  service:
+    name: nginx
+    state: started
+    enabled: yes
+
+# De serie PostgreSQL solo escucha en 127.0.0.1
+- name: PostgreSQL escucha en todas las direcciones
+  ansible.builtin.lineinfile:
+    path: /etc/postgresql/{{ postgresql_version }}/main/postgresql.conf
+    regexp: '^#?listen_addresses\s*='
+    line: "listen_addresses = '*'"
+  notify: restart postgresql
+
+# Admite conexiones con contraseña desde la red del escenario
+- name: Permitir conexiones desde la red del escenario (pg_hba.conf)
+  ansible.builtin.lineinfile:
+    path: /etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf
+    line: "host    all    all    {{ red_escenario }}    scram-sha-256"
+    insertafter: EOF
+  notify: restart postgresql
+
+# Si PostgreSQL arranca antes de que la red esté lista no puede escuchar en
+# la IP del escenario (importa al reiniciar la máquina)
+- name: Crear directorio de configuración de systemd para postgresql
+  ansible.builtin.file:
+    path: /etc/systemd/system/postgresql@.service.d
+    state: directory
+    mode: '0755'
+
+- name: PostgreSQL arranca cuando la red está lista
+  ansible.builtin.copy:
+    src: red.conf
+    dest: /etc/systemd/system/postgresql@.service.d/red.conf
+    mode: '0644'
+  notify: restart postgresql
+
+- name: Arrancar PostgreSQL
+  service:
+    name: postgresql
+    state: started
+    enabled: yes

@@ -1,0 +1,16 @@
+# Idempotencia: solo se rehace el mirror si no apunta ya al tap-captura actual
+- name: Comprobar el puerto de salida del mirror
+  ansible.builtin.shell: |
+    set -o pipefail
+    cap=$(ovs-vsctl get port {{ puerto_captura }} _uuid)
+    out=$(ovs-vsctl --if-exists get mirror {{ nombre_mirror }} output_port)
+    [ -n "$out" ] && [ "$cap" = "$out" ]
+  args:
+    executable: /bin/bash
+  register: mirror_ok
+  changed_when: false
+  failed_when: false
+
+- name: Crear el mirror (todo el tráfico de {{ ovs_bridge }} -> {{ puerto_captura }})
+  ansible.builtin.command: /usr/local/sbin/mirror-up.sh
+  when: mirror_ok.rc != 0

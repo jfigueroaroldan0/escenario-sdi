@@ -1,0 +1,31 @@
+# Local .terraform directories
+.terraform/
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+.terraform.lock.hcl
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Ficheros de variables (pueden tener datos sensibles)
+*.tfvars
+*.tfvars.json
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Inventario de Ansible generado por OpenTofu
+ansible/hosts
+
+# Imágenes de disco y ficheros grandes
+*.qcow2
+*.img
+*.iso
+*.retry

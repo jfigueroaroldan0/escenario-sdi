@@ -1,0 +1,49 @@
+# Alertas por correo del SDI (Fase 7). Se incluye solo si correo_habilitado.
+
+- name: Instalar msmtp (cliente SMTP) en el sensor
+  apt:
+    name:
+      - msmtp
+      - msmtp-mta
+    state: present
+
+# El servicio de correo corre como root, así que basta con /etc/msmtprc a 600 de root
+- name: Configurar msmtp (/etc/msmtprc)
+  ansible.builtin.template:
+    src: msmtprc.j2
+    dest: /etc/msmtprc
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Fichero de log de msmtp
+  ansible.builtin.copy:
+    content: ""
+    dest: /var/log/msmtp.log
+    force: no
+    mode: '0640'
+
+# El vigilante: sigue alert_fast.txt y manda un correo por cada alerta priority:1
+- name: Script vigilante snort-mail.sh
+  ansible.builtin.template:
+    src: snort-mail.sh.j2
+    dest: /usr/local/bin/snort-mail.sh
+    owner: root
+    group: root
+    mode: '0755'
+  notify: restart snort-mail
+
+- name: Servicio systemd snort-mail
+  ansible.builtin.template:
+    src: snort-mail.service.j2
+    dest: /etc/systemd/system/snort-mail.service
+    mode: '0644'
+  notify: restart snort-mail
+
+- name: Arrancar snort-mail y activarlo en el arranque
+  ansible.builtin.systemd:
+    name: snort-mail
+    state: started
+    enabled: yes
+    daemon_reload: yes

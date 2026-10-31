@@ -1,0 +1,27 @@
+- name: Actualizar el sistema y los paquetes
+  apt:
+    update_cache: yes
+    upgrade: yes
+    cache_valid_time: 3600
+    # En kali se prefieren los paquetes de Kali aunque sean de una versión
+    # anterior (roles/atacante); en las máquinas Debian no cambia nada
+    allow_downgrade: yes
+
+- name: Instalar los paquetes comunes
+  apt:
+    name: "{{ paquetes_comunes }}"
+    state: present
+
+# Así las máquinas se llaman por nombre dentro del escenario (victima, sdi...)
+- name: Añadir las máquinas del escenario a /etc/hosts
+  blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE RED DEL ESCENARIO"
+    block: |
+      {% for e in equipos_escenario %}
+      {{ e.ip }} {{ e.nombre }}.{{ dominio_escenario }} {{ e.nombre }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: '0644'
+

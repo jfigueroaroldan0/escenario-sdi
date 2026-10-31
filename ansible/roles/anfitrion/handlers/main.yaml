@@ -1,0 +1,5 @@
+# libvirt solo busca los hooks al arrancar (las máquinas encendidas no se paran)
+- name: restart libvirtd
+  service:
+    name: libvirtd
+    state: restarted

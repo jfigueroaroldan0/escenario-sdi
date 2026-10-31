@@ -1,0 +1,123 @@
+# La imagen qemu de Kali no trae cloud-init ni SSH activo, así que no se puede
+# configurar con OpenTofu + Ansible. Se parte de Debian 13 y se convierte en
+# Kali Linux cambiando sus repositorios por los de Kali (kali-rolling).
+- name: Descargar la clave del repositorio de Kali
+  ansible.builtin.get_url:
+    url: https://archive.kali.org/archive-keyring.gpg
+    dest: /usr/share/keyrings/kali-archive-keyring.gpg
+    mode: '0644'
+
+- name: Quitar los repositorios de Debian
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/debian.sources
+    state: absent
+
+- name: Añadir el repositorio de Kali
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/kali.sources
+    mode: '0644'
+    content: |
+      Types: deb
+      URIs: http://http.kali.org/kali
+      Suites: kali-rolling
+      Components: main contrib non-free non-free-firmware
+      Signed-By: /usr/share/keyrings/kali-archive-keyring.gpg
+
+# Al actualizar, apt cambiaría grub-cloud-amd64 por systemd-boot, que copia los
+# núcleos a la partición EFI (124 MB), la llena y deja dpkg roto. Además la
+# máquina arranca por BIOS con GRUB: se prohíbe systemd-boot
+- name: No instalar systemd-boot (la máquina arranca con GRUB)
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/no-systemd-boot
+    mode: '0644'
+    content: |
+      Package: systemd-boot systemd-boot-efi-amd64-signed systemd-boot-tools
+      Pin: release *
+      Pin-Priority: -1
+
+# Algunos paquetes de Debian 13 (actualizaciones de seguridad, p. ej. bind9-libs)
+# son más nuevos que los de Kali y dist-upgrade nunca baja de versión: se
+# quedarían los de Debian y romperían las dependencias de Kali. Con prioridad
+# 1001 apt cambia todos los paquetes a la versión de Kali aunque sea anterior.
+# (La regla de systemd-boot, al nombrar paquetes concretos, se sigue aplicando.)
+- name: Preferir siempre los paquetes de Kali
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/kali
+    mode: '0644'
+    content: |
+      Package: *
+      Pin: release o=Kali
+      Pin-Priority: 1001
+
+# Pasa todo el sistema a kali-rolling (tarda varios minutos)
+- name: Actualizar el sistema a Kali Linux
+  apt:
+    update_cache: yes
+    upgrade: dist
+    dpkg_options: force-confdef,force-confold
+    allow_downgrade: yes   # necesario por la prioridad 1001 de Kali
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: paso_a_kali
+
+# Si la actualización ha quitado grub-cloud-amd64 se vuelve a poner (la versión
+# de Kali): instala GRUB en el disco y regenera grub.cfg con el núcleo de Kali
+- name: Mantener GRUB como gestor de arranque
+  apt:
+    name: grub-cloud-amd64
+    state: latest
+    dpkg_options: force-confdef,force-confold
+    allow_downgrade: yes   # necesario por la prioridad 1001 de Kali
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: grub
+
+# Tras pasar a Kali, la red que configuró cloud-init (netplan) no se levanta
+# al arrancar y la máquina se queda sin IP. Se configura directamente con
+# systemd-networkd, buscando cada tarjeta por su MAC como hace OpenTofu.
+# (Estos ficheros se leen antes que los 10-netplan-* que genera netplan.)
+- name: Red de gestión con systemd-networkd (DHCP)
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/10-gestion.network
+    mode: '0644'
+    content: |
+      # Gestionado por Ansible
+      [Match]
+      MACAddress={{ ansible_default_ipv4.macaddress }}
+
+      [Network]
+      DHCP=ipv4
+  register: red_gestion
+
+- name: Red del escenario con systemd-networkd (IP estática)
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/10-escenario.network
+    mode: '0644'
+    content: |
+      # Gestionado por Ansible
+      [Match]
+      MACAddress={{ mac_escenario }}
+
+      [Network]
+      Address={{ equipos_escenario | selectattr('nombre', 'equalto', inventory_hostname) | map(attribute='ip') | first }}/24
+  register: red_escenario
+
+- name: Activar systemd-networkd
+  ansible.builtin.systemd:
+    name: systemd-networkd
+    enabled: yes
+
+- name: Reiniciar con el sistema y el núcleo de Kali
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: paso_a_kali.changed or grub.changed or red_gestion.changed or red_escenario.changed
+
+# Metapaquete con las herramientas de Kali sin escritorio
+- name: Instalar las herramientas de Kali ({{ kali_metapaquete }})
+  apt:
+    name: "{{ kali_metapaquete }}"
+    state: present
+    dpkg_options: force-confdef,force-confold
+    allow_downgrade: yes   # necesario por la prioridad 1001 de Kali
+  environment:
+    DEBIAN_FRONTEND: noninteractive

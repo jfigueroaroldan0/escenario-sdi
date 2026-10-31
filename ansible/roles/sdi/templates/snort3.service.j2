@@ -1,0 +1,19 @@
+# Gestionado por Ansible
+[Unit]
+Description=Snort 3 (SDI) analizando el mirror del switch en {{ iface_captura }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# La interfaz de captura no tiene IP: se levanta en modo promiscuo y sin
+# offloads, para que Snort vea los paquetes tal y como van por el cable
+ExecStartPre=/usr/sbin/ip link set {{ iface_captura }} up promisc on
+ExecStartPre=-/usr/sbin/ethtool -K {{ iface_captura }} gro off lro off
+# -A alert_fast + alert_fast.file: alertas de una línea en {{ snort_log_dir }}/alert_fast.txt
+ExecStart=/usr/local/bin/snort -c {{ snort_dir }}/snort.lua -i {{ iface_captura }} -l {{ snort_log_dir }} -A alert_fast --lua "alert_fast = { file = true }"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

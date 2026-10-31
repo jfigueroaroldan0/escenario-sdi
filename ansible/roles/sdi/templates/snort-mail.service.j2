@@ -1,0 +1,13 @@
+# Gestionado por Ansible
+[Unit]
+Description=Envío de alertas de Snort por correo
+After=snort3.service
+Wants=snort3.service
+
+[Service]
+ExecStart=/usr/local/bin/snort-mail.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

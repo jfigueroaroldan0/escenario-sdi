@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Gestionado por Ansible.
+# mirror-up.sh - (re)crea el port mirroring del escenario: copia TODO el
+# tráfico del switch {{ ovs_bridge }} al puerto de captura del SDI.
+set -euo pipefail
+
+BRIDGE="{{ ovs_bridge }}"
+CAPTURA="{{ puerto_captura }}"
+MIRROR="{{ nombre_mirror }}"
+
+# El puerto de captura debe existir (la máquina sdi tiene que estar encendida)
+if ! ovs-vsctl list-ports "$BRIDGE" | grep -qx "$CAPTURA"; then
+    echo "ERROR: el puerto '$CAPTURA' no está en $BRIDGE. ¿Está encendido el SDI?" >&2
+    exit 1
+fi
+
+# Borra el mirror anterior (si lo hay) y lo recrea apuntando al tap-captura actual
+ovs-vsctl clear bridge "$BRIDGE" mirrors
+ovs-vsctl -- set bridge "$BRIDGE" mirrors=@m \
+  -- --id=@cap get port "$CAPTURA" \
+  -- --id=@m create mirror name="$MIRROR" select-all=true output-port=@cap
+
+echo "Mirror '$MIRROR' recreado -> copia todo el tráfico de $BRIDGE a $CAPTURA"

@@ -1,0 +1,5 @@
+# Nombre real de la tarjeta de captura del SDI: se busca por su MAC (la fija
+# OpenTofu y viene en el inventario), así no depende de si se llama ens5, enp3s0...
+iface_captura: "{{ ansible_interfaces | map('replace', '-', '_') | map('extract', ansible_facts)
+  | selectattr('macaddress', 'defined') | selectattr('macaddress', 'equalto', mac_captura)
+  | map(attribute='device') | first }}"

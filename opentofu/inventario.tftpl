@@ -1,0 +1,18 @@
+# Fichero generado por OpenTofu (inventario.tf): no lo edites a mano
+# "rol" es el rol de Ansible que configura cada máquina (site.yaml)
+all:
+  vars:
+    ansible_user: debian
+    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+  children:
+%{ for nombre, grupo in { sdi = "sensores", victima = "victimas", kali = "atacantes", openvas = "escaneres", auditor = "auditores" } ~}
+    ${grupo}:
+      hosts:
+        ${nombre}:
+          ansible_host: ${maquinas[nombre].ip_gestion}
+          rol: ${roles[nombre]}
+          mac_escenario: "${maquinas[nombre].mac_escenario}"
+%{ if nombre == "sdi" ~}
+          mac_captura: "${mac_captura}"
+%{ endif ~}
+%{ endfor ~}

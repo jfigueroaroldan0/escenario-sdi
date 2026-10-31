@@ -1,0 +1,14 @@
+#!/bin/sh
+# Gestionado por Ansible.
+# Hook de libvirt: libvirt lo ejecuta con  <máquina> <operación> <suboperación>
+# Cuando arranca la máquina {{ dominio_sdi }} su puerto {{ puerto_captura }} ya existe: se rehace el mirror.
+# Los comandos van aquí y no llamando a mirror-up.sh porque AppArmor no deja
+# a libvirtd ejecutar programas de /usr/local/sbin (ovs-vsctl sí).
+if [ "$1" = "{{ dominio_sdi }}" ] && [ "$2" = "started" ]; then
+    ovs-vsctl clear bridge {{ ovs_bridge }} mirrors
+    ovs-vsctl -- set bridge {{ ovs_bridge }} mirrors=@m \
+      -- --id=@cap get port {{ puerto_captura }} \
+      -- --id=@m create mirror name={{ nombre_mirror }} select-all=true output-port=@cap \
+      >/dev/null 2>&1 || true
+fi
+exit 0

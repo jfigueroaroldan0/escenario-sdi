@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Gestionado por Ansible.
+# snort-mail.sh - vigila el log de Snort y envía un correo por cada alerta grave
+set -uo pipefail
+
+LOG="{{ snort_log_dir }}/alert_fast.txt"
+DEST="{{ smtp_destinatario }}"
+
+# Espera a que el fichero exista (Snort lo crea con la primera alerta)
+while [ ! -f "$LOG" ]; do sleep 2; done
+
+# Sigue el log desde el final y por cada línea nueva decide si manda correo
+tail -F -n0 "$LOG" | while read -r linea; do
+    # solo correo si la alerta es de prioridad alta (grave)
+    echo "$linea" | grep -q 'Priority: 1' || continue
+    printf 'To: %s\nSubject: [SNORT] Alerta de seguridad\n\n%s\n' "$DEST" "$linea" | msmtp "$DEST"
+done
