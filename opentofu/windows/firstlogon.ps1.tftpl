@@ -1,0 +1,56 @@
+# Fichero generado por OpenTofu (windows.tf). Se ejecuta UNA vez en el primer
+# inicio (autologon). Toda la salida va a C:\firstlogon.log.
+$ErrorActionPreference = 'Continue'
+Write-Output "=== firstlogon $(Get-Date) ==="
+
+# ---------- 1) IP estática en la tarjeta del escenario (por MAC) ----------
+# La tarjeta de gestión se queda en DHCP (NAT -> Internet para instalar).
+$macEscenario = '${mac_escenario}'
+try {
+  $nic = Get-NetAdapter | Where-Object { $_.MacAddress -eq $macEscenario }
+  if ($nic) {
+    Write-Output "Tarjeta escenario: $($nic.Name) ($($nic.MacAddress))"
+    Get-NetIPAddress -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+      Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+    New-NetIPAddress -InterfaceIndex $nic.ifIndex -IPAddress '${ip_escenario}' -PrefixLength 24 -ErrorAction Stop
+    Set-DnsClientServerAddress -InterfaceIndex $nic.ifIndex -ResetServerAddresses
+    Write-Output "IP del escenario puesta: ${ip_escenario}/24 (sin gateway, red aislada)"
+  } else {
+    Write-Output "AVISO: no encuentro la tarjeta con MAC $macEscenario"
+  }
+} catch { Write-Output "ERROR IP escenario: $_" }
+
+# ---------- 2) Habilitar Escritorio remoto (RDP) ----------
+try {
+  Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+  Enable-NetFirewallRule -DisplayGroup 'Escritorio remoto' -ErrorAction SilentlyContinue
+  Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'   -ErrorAction SilentlyContinue
+  Write-Output "RDP habilitado"
+} catch { Write-Output "ERROR RDP: $_" }
+
+# ---------- 3) Chocolatey ----------
+try {
+  Set-ExecutionPolicy Bypass -Scope Process -Force
+  [System.Net.ServicePointManager]::SecurityProtocol = 3072
+  Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+  $choco = "$env:ProgramData\chocolatey\bin\choco.exe"
+  Write-Output "Chocolatey instalado"
+} catch { Write-Output "ERROR Chocolatey: $_"; $choco = 'choco' }
+
+# ---------- 4) Herramientas de ataque / cracking (una a una, sin abortar) ----------
+$tools = @(${choco_tools})
+foreach ($t in $tools) {
+  try {
+    Write-Output "--- choco install $t ---"
+    & $choco install $t -y --no-progress --ignore-checksums
+  } catch { Write-Output "ERROR instalando $t : $_" }
+}
+
+# ---------- 5) Guest tools de virtio (agente QEMU), si está el ISO ----------
+try {
+  $vd = Get-Volume | Where-Object { $_.FileSystemLabel -match 'virtio|CDROM' -and $_.DriveLetter } |
+        ForEach-Object { "$($_.DriveLetter):\virtio-win-guest-tools.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($vd) { Start-Process -FilePath $vd -ArgumentList '/install','/quiet','/norestart' -Wait; Write-Output "virtio guest tools instaladas" }
+} catch { Write-Output "ERROR virtio tools: $_" }
+
+Write-Output "=== firstlogon FIN $(Get-Date) ==="

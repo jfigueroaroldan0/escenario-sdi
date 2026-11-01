@@ -2,7 +2,7 @@
 hostname: ${hostname}
 
 users:
-  - name: debian
+  - name: jesusfigueroa
     sudo: ALL=(ALL) NOPASSWD:ALL
     groups: users
     shell: /bin/bash
@@ -12,8 +12,8 @@ users:
 chpasswd:
   expire: False
   users:
-    - name: debian
-      password: asdasd
+    - name: jesusfigueroa
+      password: usuario
       type: text
 
 locale: es_ES.UTF-8

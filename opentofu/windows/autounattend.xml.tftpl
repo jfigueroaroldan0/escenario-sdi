@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fichero generado por OpenTofu (windows.tf): instalación desatendida de
+     Windows 10. Disco SATA y red e1000e: el instalador los ve sin cargar
+     drivers virtio, por eso no hace falta inyectar ningún controlador. -->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+
+  <!-- ============ Fase WindowsPE: idioma, disco e imagen ============ -->
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <SetupUILanguage>
+        <UILanguage>es-ES</UILanguage>
+      </SetupUILanguage>
+      <InputLocale>0000040a</InputLocale>
+      <SystemLocale>es-ES</SystemLocale>
+      <UILanguage>es-ES</UILanguage>
+      <UserLocale>es-ES</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <!-- Borra el disco 0 y crea una única partición que ocupa todo -->
+      <DiskConfiguration>
+        <Disk wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add">
+              <Order>1</Order>
+              <Type>Primary</Type>
+              <Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order>
+              <PartitionID>1</PartitionID>
+              <Format>NTFS</Format>
+              <Label>Windows</Label>
+              <Letter>C</Letter>
+              <Active>true</Active>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+        <WillShowUI>OnError</WillShowUI>
+      </DiskConfiguration>
+
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+              <Key>/IMAGE/NAME</Key>
+              <Value>Windows 10 Pro</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>1</PartitionID>
+          </InstallTo>
+          <WillShowUI>OnError</WillShowUI>
+        </OSImage>
+      </ImageInstall>
+
+      <UserData>
+        <!-- Clave genérica de edición (selecciona Pro; Windows queda SIN activar) -->
+        <ProductKey>
+          <Key>W269N-WFGWX-YVC9B-4J6C9-T83GX</Key>
+          <WillShowUI>OnError</WillShowUI>
+        </ProductKey>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
+    </component>
+  </settings>
+
+  <!-- ============ Fase specialize: nombre de equipo ============ -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <ComputerName>${hostname}</ComputerName>
+    </component>
+  </settings>
+
+  <!-- ============ Fase oobeSystem: usuario, OOBE y primer inicio ============ -->
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-International-Core"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>0000040a</InputLocale>
+      <SystemLocale>es-ES</SystemLocale>
+      <UILanguage>es-ES</UILanguage>
+      <UserLocale>es-ES</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <!-- Saltar todas las pantallas de OOBE -->
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <ProtectYourPC>3</ProtectYourPC>
+        <NetworkLocation>Work</NetworkLocation>
+      </OOBE>
+
+      <!-- Cuenta local administradora -->
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+            <Name>${usuario}</Name>
+            <DisplayName>${usuario}</DisplayName>
+            <Group>Administrators</Group>
+            <Password>
+              <Value>${password}</Value>
+              <PlainText>true</PlainText>
+            </Password>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+
+      <!-- Autologon para que el script de primer inicio tenga red y sesión -->
+      <AutoLogon>
+        <Enabled>true</Enabled>
+        <Username>${usuario}</Username>
+        <LogonCount>1</LogonCount>
+        <Password>
+          <Value>${password}</Value>
+          <PlainText>true</PlainText>
+        </Password>
+      </AutoLogon>
+
+      <!-- Busca firstlogon.ps1 en los medios montados (ISO autounattend) y lo ejecuta -->
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <Order>1</Order>
+          <Description>Configuracion del escenario</Description>
+          <CommandLine>powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "foreach($d in (Get-PSDrive -PSProvider FileSystem)){ $p = Join-Path $d.Root 'firstlogon.ps1'; if (Test-Path $p) { &amp; $p *&gt; C:\firstlogon.log; break } }"</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+    </component>
+  </settings>
+</unattend>

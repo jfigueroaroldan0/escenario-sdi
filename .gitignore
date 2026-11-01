@@ -29,3 +29,6 @@ ansible/hosts
 *.img
 *.iso
 *.retry
+
+# Ficheros generados del autounattend de Windows (incluyen la contraseña)
+opentofu/windows/build/

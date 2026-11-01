@@ -59,6 +59,6 @@ smtp_remitente: verdeblancoyazul@gmail.com     # la cuenta que envía (from/user
 smtp_destinatario: jesusfigueroaroldan@gmail.com  # donde llegan las alertas
 smtp_host: smtp.gmail.com
 smtp_port: 587
-smtp_password: ""                               # vacío -> no se configura el correo
+smtp_password: ""                               
 # Si está a true pero smtp_password está vacío, los roles avisan y se saltan el correo
 correo_habilitado: "{{ smtp_password | length > 0 }}"

@@ -2,7 +2,7 @@
 # "rol" es el rol de Ansible que configura cada máquina (site.yaml)
 all:
   vars:
-    ansible_user: debian
+    ansible_user: jesusfigueroa
     ansible_ssh_private_key_file: ~/.ssh/id_rsa
   children:
 %{ for nombre, grupo in { sdi = "sensores", victima = "victimas", kali = "atacantes", openvas = "escaneres", auditor = "auditores" } ~}

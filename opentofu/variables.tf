@@ -32,3 +32,18 @@ variable "puerto_captura" {
   description = "Nombre de la interfaz tap de captura del SDI."
   default     = "tap-captura"
 }
+
+# --- Windows 10 atacante (instalación desatendida con autounattend.xml) ---
+# ISO de instalación de Windows 10 (multi-edición; el autounattend elige Pro)
+variable "windows_iso" {
+  type        = string
+  description = "Ruta al ISO de instalación de Windows 10."
+  default     = "~/Documentos/ISOS/Win10_22H2_Spanish_x64v1.iso"
+}
+
+# ISO de drivers virtio (para instalar las guest tools tras el arranque)
+variable "virtio_iso" {
+  type        = string
+  description = "Ruta al ISO virtio-win."
+  default     = "~/Documentos/ISOS/virtio-win-0.1.302.iso"
+}
