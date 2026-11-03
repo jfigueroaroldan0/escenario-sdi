@@ -128,14 +128,23 @@ resource "libvirt_domain" "windows" {
   }
 
   # El provider no distingue CD-ROM/bus ni modelo de tarjeta: lo ajusta el XSLT
-  # (disco -> SATA, ISO -> CD-ROM solo lectura, tarjetas -> e1000e)
+  # (disco -> SATA, ISO -> CD-ROM solo lectura, tarjetas -> e1000e). Los CD-ROM
+  # se emiten como type='file' con la ruta del ISO (el id del volumen es su ruta)
+  # para esquivar un nil pointer del provider al leer cdrom de type='volume'.
   xml {
-    xslt = file("${path.module}/xslt/windows-devices.xsl")
+    xslt = templatefile("${path.module}/xslt/windows-devices.xsl.tftpl", {
+      win10_iso    = libvirt_volume.win_iso.id
+      unattend_iso = libvirt_volume.win_unattend_iso.id
+      virtio_iso   = libvirt_volume.win_virtio_iso.id
+    })
   }
 
   # Con la máquina encendida el provider lee las tarjetas OVS como bridge y en
-  # cada plan querría "cambiarlas": se ignoran (igual que en main.tf)
+  # cada plan querría "cambiarlas": se ignoran (igual que en main.tf).
+  # 'disk' también: el XSLT convierte los CD-ROM a type='file', pero la config
+  # los declara con volume_id; sin ignorarlo habría un diff perpetuo (file<->
+  # volume_id) en cada plan. La VW se instala sola, no se tocan sus discos.
   lifecycle {
-    ignore_changes = [network_interface]
+    ignore_changes = [network_interface, disk]
   }
 }
