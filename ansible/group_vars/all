@@ -6,6 +6,7 @@ equipos_escenario:
   - { nombre: kali,    ip: 10.0.50.30 }
   - { nombre: openvas, ip: 10.0.50.40 }
   - { nombre: auditor, ip: 10.0.50.50 }
+  - { nombre: metasploitable, ip: 10.0.50.60 }
 dominio_escenario: escenario.sdi
 victima_ip: 10.0.50.20
 
@@ -48,17 +49,22 @@ paquetes_auditor:
   - hydra
   - aide
   - aide-common
+# Cada cuánto el auditor comprueba /etc con AIDE y avisa por correo de los cambios
+# (solo si el correo está habilitado). Acepta formato de systemd: 10min, 1h, 1d...
+aide_intervalo_etc: "10min"
 
-# --- Alertas por correo (SDI y OpenVAS, Fase 7 / sección de OpenVAS en Notion) ---
+# --- Alertas por correo en las máquinas virtuales (SDI y Auditor) ---
 # Toda la parte de correo es OPCIONAL: solo se configura si smtp_password tiene valor.
 # Como lleva una contraseña, lo suyo es ponerla con ansible-vault y NO en claro:
 #   ansible-vault encrypt_string 'abcdefghijklmnop' --name smtp_password
 # y pegar el resultado aquí. Es una contraseña de aplicación de Gmail (16 letras,
 # sin espacios), con la verificación en dos pasos activada en la cuenta remitente.
+# Las alertas de correo se configuran de forma nativa en las VMs (Snort en SDI y AIDE en Auditor),
+# no en contenedores Docker.
 smtp_remitente: verdeblancoyazul@gmail.com     # la cuenta que envía (from/user)
 smtp_destinatario: jesusfigueroaroldan@gmail.com  # donde llegan las alertas
 smtp_host: smtp.gmail.com
 smtp_port: 587
-smtp_password: ""                               
+smtp_password: "czbhjtceyghfdhcz"                               
 # Si está a true pero smtp_password está vacío, los roles avisan y se saltan el correo
 correo_habilitado: "{{ smtp_password | length > 0 }}"

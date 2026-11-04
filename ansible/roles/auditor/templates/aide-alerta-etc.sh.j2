@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Gestionado por Ansible.
+# aide-alerta-etc.sh - comprueba la integridad de /etc con AIDE y, si hay
+# modificaciones, borrados o altas de ficheros, manda un correo (msmtp) al mismo
+# destino que las alertas del SDI. Lo lanza periódicamente aide-alerta-etc.timer.
+#
+# OJO: AIDE no es en tiempo real. Compara el estado ACTUAL de /etc con la base de
+# datos de referencia (/var/lib/aide/aide.db, creada al desplegar) cada vez que se
+# ejecuta. Por eso la alerta llega en la siguiente pasada del timer, no al instante.
+set -uo pipefail
+
+CONF="/etc/aide/aide.conf"
+DEST="{{ smtp_destinatario }}"
+HOST="$(hostname)"
+REPORTE="$(mktemp)"
+trap 'rm -f "$REPORTE"' EXIT
+
+# --limit '^/etc' restringe la comprobación a /etc (rápido y acotado al objetivo).
+# Código de salida de AIDE:
+# 0 = sin cambios
+# 1 = altas
+# 2 = borrados
+# 4 = modificaciones
+# Combinables (ej: 6 = borrado + modificación)
+# >=14 = error de AIDE
+aide --config "$CONF" --check --limit '^/etc' >"$REPORTE" 2>&1
+rc=$?
+
+# Sin cambios: nada que notificar
+[ "$rc" -eq 0 ] && exit 0
+
+# Si no hay error de AIDE, clasificar el tipo de evento
+if [ "$rc" -lt 14 ]; then
+    TIPO=""
+    [ $((rc & 1)) -ne 0 ] && TIPO="${TIPO} ALTA"
+    [ $((rc & 2)) -ne 0 ] && TIPO="${TIPO} BORRADO"
+    [ $((rc & 4)) -ne 0 ] && TIPO="${TIPO} MODIFICACION"
+    ASUNTO="[AIDE] Alerta en /etc (${TIPO# }) en ${HOST}"
+else
+    ASUNTO="[AIDE] Error comprobando /etc en ${HOST}"
+fi
+
+{
+    printf 'To: %s\n'      "$DEST"
+    printf 'Subject: %s\n' "$ASUNTO"
+    printf '\n'
+    printf 'AIDE ha detectado alertas en /etc de %s el %s.\n\n' "$HOST" "$(date '+%F %T')"
+    printf 'Codigo de salida AIDE: %s  (1=alta  2=borrado  4=modificacion)\n\n' "$rc"
+    cat "$REPORTE"
+    printf '\n-- \nSi estos cambios son legitimos, resella la base de datos con:\n'
+    printf 'sudo aide --config /etc/aide/aide.conf --init && sudo cp -f /var/lib/aide/aide.db.new /var/lib/aide/aide.db\n'
+} | msmtp "$DEST"

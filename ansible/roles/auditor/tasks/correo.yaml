@@ -1,0 +1,65 @@
+# Alertas por correo del auditor: avisa de modificaciones, borrados o altas en /etc
+# (comprobados con AIDE) al mismo correo que el SDI. Se incluye solo si
+# correo_habilitado (hay smtp_password).
+
+- name: Instalar msmtp (cliente SMTP) en el auditor
+  apt:
+    name:
+      - msmtp
+      - msmtp-mta
+    state: present
+  notify: reconstruir base de datos AIDE
+
+# El servicio corre como root, así que basta con /etc/msmtprc a 600 de root
+- name: Configurar msmtp (/etc/msmtprc)
+  ansible.builtin.template:
+    src: msmtprc.j2
+    dest: /etc/msmtprc
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  notify: reconstruir base de datos AIDE
+
+- name: Fichero de log de msmtp
+  ansible.builtin.copy:
+    content: ""
+    dest: /var/log/msmtp.log
+    force: no
+    mode: '0640'
+
+- name: Script de alerta de /etc (AIDE + msmtp)
+  ansible.builtin.template:
+    src: aide-alerta-etc.sh.j2
+    dest: /usr/local/sbin/aide-alerta-etc.sh
+    owner: root
+    group: root
+    mode: '0755'
+  notify:
+    - reiniciar aide-alerta-etc.timer
+    - reconstruir base de datos AIDE
+
+- name: Servicio systemd de la alerta de /etc
+  ansible.builtin.template:
+    src: aide-alerta-etc.service.j2
+    dest: /etc/systemd/system/aide-alerta-etc.service
+    mode: '0644'
+  notify:
+    - reiniciar aide-alerta-etc.timer
+    - reconstruir base de datos AIDE
+
+- name: Timer systemd de la alerta de /etc
+  ansible.builtin.template:
+    src: aide-alerta-etc.timer.j2
+    dest: /etc/systemd/system/aide-alerta-etc.timer
+    mode: '0644'
+  notify:
+    - reiniciar aide-alerta-etc.timer
+    - reconstruir base de datos AIDE
+
+- name: Activar y arrancar el timer de alerta de /etc
+  ansible.builtin.systemd:
+    name: aide-alerta-etc.timer
+    state: started
+    enabled: yes
+    daemon_reload: yes

@@ -1,10 +1,9 @@
-# Gestionado por Ansible. Se monta como /etc/msmtprc dentro del contenedor gvmd.
-# gvmd envía las alertas con /usr/sbin/sendmail -> msmtp usando esta configuración.
+# Gestionado por Ansible
 defaults
 auth           on
 tls            on
 tls_trust_file /etc/ssl/certs/ca-certificates.crt
-syslog         LOG_MAIL
+logfile        /var/log/msmtp.log
 
 account        gmail
 host           {{ smtp_host }}

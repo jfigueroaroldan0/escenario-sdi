@@ -1,0 +1,13 @@
+- name: reiniciar aide-alerta-etc.timer
+  ansible.builtin.systemd:
+    name: aide-alerta-etc.timer
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
+
+# Al configurar el correo o tocar /etc, re-sellamos la base de datos de referencia
+# de AIDE para que no haya falsos positivos iniciales.
+- name: reconstruir base de datos AIDE
+  ansible.builtin.shell: >
+    aide --config /etc/aide/aide.conf --init &&
+    cp -f /var/lib/aide/aide.db.new /var/lib/aide/aide.db

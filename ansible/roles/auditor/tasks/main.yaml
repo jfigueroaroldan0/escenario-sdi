@@ -2,21 +2,56 @@
   apt:
     name: "{{ paquetes_auditor }}"
     state: present
-  environment:
-    DEBIAN_FRONTEND: noninteractive
 
-# AIDE necesita una base de datos inicial con el estado "bueno" de los
-# ficheros para luego compararlo (aide --check). Solo se crea la primera vez.
-- name: Crear la base de datos inicial de AIDE (tarda unos minutos)
+# Exclusiones de AIDE para evitar falsos positivos en /etc
+- name: Directorio de drop-ins de AIDE
+  ansible.builtin.file:
+    path: /etc/aide/aide.conf.d
+    state: directory
+    mode: '0755'
+
+- name: Exclusiones de ficheros volátiles en /etc para AIDE
+  ansible.builtin.copy:
+    dest: /etc/aide/aide.conf.d/00_exclusiones
+    mode: '0644'
+    content: |
+      # Gestionado por Ansible: exclusión de ficheros dinámicos y volátiles en /etc
+      !/etc/ld\.so\.cache$
+      !/etc/alternatives/.*
+      !/etc/adjtime$
+
+# Alertas por correo: avisa de modificaciones o borrados en /etc al mismo correo
+# que el SDI (solo si hay smtp_password). Se configura antes de inicializar la
+# base de datos para que la foto de referencia incluya la configuración final.
+- name: Configurar las alertas por correo de /etc (AIDE)
+  ansible.builtin.include_tasks: correo.yaml
+  when: correo_habilitado | bool
+
+- name: Aviso si el correo está desactivado (falta smtp_password)
+  ansible.builtin.debug:
+    msg: >
+      Alertas por correo del auditor desactivadas: define smtp_password en group_vars/all.
+  when: not (correo_habilitado | bool)
+
+# Inicializar la base de datos de referencia tras toda la configuración
+- name: Inicializar la base de datos de referencia de AIDE
   ansible.builtin.shell: >
     aide --config /etc/aide/aide.conf --init &&
-    cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+    cp -f /var/lib/aide/aide.db.new /var/lib/aide/aide.db
   args:
     creates: /var/lib/aide/aide.db
 
-# El paquete trae un timer de systemd que hace la comprobación todos los días
-- name: Activar la comprobación diaria de AIDE
+# Si correo_habilitado está activo usamos aide-alerta-etc.timer y paramos dailyaidecheck
+- name: Desactivar la comprobación diaria por defecto si está activo el timer de /etc
+  ansible.builtin.systemd:
+    name: dailyaidecheck.timer
+    state: stopped
+    enabled: no
+  when: correo_habilitado | bool
+
+- name: Activar la comprobación diaria de AIDE de Debian si no hay alertas de /etc
   ansible.builtin.systemd:
     name: dailyaidecheck.timer
     state: started
     enabled: yes
+  when: not (correo_habilitado | bool)

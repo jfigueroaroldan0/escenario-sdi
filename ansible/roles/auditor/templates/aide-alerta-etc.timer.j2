@@ -1,0 +1,12 @@
+# Gestionado por Ansible.
+[Unit]
+Description=Lanza periodicamente la comprobacion de /etc con AIDE
+
+[Timer]
+# Primera pasada poco despues de arrancar y luego cada {{ aide_intervalo_etc }}
+OnBootSec=3min
+OnUnitActiveSec={{ aide_intervalo_etc }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

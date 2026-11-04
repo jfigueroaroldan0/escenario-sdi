@@ -52,34 +52,15 @@
     state: directory
     mode: '0755'
 
-# Alertas por correo: el contenedor gvmd ya trae msmtp y /usr/sbin/sendmail, así
-# que solo hay que darle su /etc/msmtprc. Se monta con un override de compose.
-- name: Ficheros de compose (añade el override del correo si procede)
-  ansible.builtin.set_fact:
-    openvas_compose_files: "-f {{ openvas_dir }}/compose.yaml{{ ' -f ' ~ openvas_dir ~ '/compose.override.yaml' if correo_habilitado | bool else '' }}"
-
-- name: Configuración de msmtp para el contenedor gvmd
-  ansible.builtin.template:
-    src: msmtprc.j2
-    # 0644: el demonio gvmd corre como usuario gvmd y tiene que poder leer este
-    # fichero montado dentro del contenedor. La VM está muy aislada (lab).
-    dest: "{{ openvas_dir }}/msmtprc"
-    mode: '0644'
-  no_log: true
-  when: correo_habilitado | bool
-
-- name: Override de compose que monta el msmtprc en gvmd
-  ansible.builtin.copy:
-    src: compose.override.yaml
-    dest: "{{ openvas_dir }}/compose.override.yaml"
-    mode: '0644'
-  when: correo_habilitado | bool
-
-- name: Quitar el override si el correo está desactivado
+# Asegurar que no quede ningún override de correo residual en OpenVAS (las alertas van en las VMs)
+- name: Limpiar posibles ficheros de override de correo en OpenVAS
   ansible.builtin.file:
-    path: "{{ openvas_dir }}/compose.override.yaml"
+    path: "{{ item }}"
     state: absent
-  when: not (correo_habilitado | bool)
+  loop:
+    - "{{ openvas_dir }}/compose.override.yaml"
+    - "{{ openvas_dir }}/msmtprc"
+    - "{{ openvas_dir }}/crear-alertas-openvas.sh"
 
 # Es el compose.yaml oficial; solo cambian los puertos de nginx (443 y 9392),
 # que escuchan en todas las interfaces y no solo en 127.0.0.1
@@ -92,12 +73,12 @@
 
 - name: Descargar las imágenes de Greenbone (tarda bastante la primera vez)
   ansible.builtin.command: >
-    docker compose {{ openvas_compose_files }} -p {{ openvas_proyecto }} pull
+    docker compose -f {{ openvas_dir }}/compose.yaml -p {{ openvas_proyecto }} pull
   when: compose.changed
 
 - name: Levantar los contenedores de Greenbone
   ansible.builtin.command: >
-    docker compose {{ openvas_compose_files }} -p {{ openvas_proyecto }} up -d
+    docker compose -f {{ openvas_dir }}/compose.yaml -p {{ openvas_proyecto }} up -d
   register: compose_up
   changed_when: "'Started' in compose_up.stderr or 'Recreated' in compose_up.stderr"
 
@@ -105,7 +86,7 @@
 # No se puede saber si la contraseña ya era esa, por eso no cuenta como cambio.
 - name: Poner la contraseña del usuario admin de OpenVAS
   ansible.builtin.command: >
-    docker compose {{ openvas_compose_files }} -p {{ openvas_proyecto }}
+    docker compose -f {{ openvas_dir }}/compose.yaml -p {{ openvas_proyecto }}
     exec -T -u gvmd gvmd gvmd --user=admin --new-password={{ openvas_admin_password }}
   register: admin_pass
   until: admin_pass.rc == 0
@@ -122,36 +103,3 @@
   until: gsa.status == 200
   retries: 30
   delay: 10
-
-# Si el override del correo se añadió DESPUÉS de levantar los contenedores (p. ej.
-# al activar el correo en una pasada posterior), se recrea gvmd para que monte el msmtprc
-- name: Recrear gvmd con el msmtprc montado
-  ansible.builtin.command: >
-    docker compose {{ openvas_compose_files }} -p {{ openvas_proyecto }} up -d gvmd
-  register: gvmd_up
-  changed_when: "'Recreated' in gvmd_up.stderr or 'Started' in gvmd_up.stderr"
-  when: correo_habilitado | bool
-
-# Las dos alertas que en la página de Notion se crean a mano por la web
-# (Configuration → Alerts), aquí se crean por GMP. El script es idempotente:
-# comprueba por nombre y no duplica. Crea también el filtro de severidad alta,
-# un objetivo (la víctima) y una tarea "Full and fast" con las dos alertas.
-- name: Script que crea las alertas de correo de OpenVAS (GMP)
-  ansible.builtin.template:
-    src: crear-alertas-openvas.sh.j2
-    dest: "{{ openvas_dir }}/crear-alertas-openvas.sh"
-    mode: '0755'
-  when: correo_habilitado | bool
-
-- name: Crear las alertas, el filtro, el objetivo y la tarea en OpenVAS
-  ansible.builtin.command: "{{ openvas_dir }}/crear-alertas-openvas.sh"
-  register: alertas
-  changed_when: "'CREADO' in alertas.stdout"
-  when: correo_habilitado | bool
-
-- name: Aviso si el correo está desactivado (falta smtp_password)
-  ansible.builtin.debug:
-    msg: >
-      Alertas por correo de OpenVAS desactivadas: define smtp_password en group_vars
-      (contraseña de aplicación de Gmail) para activarlas.
-  when: not (correo_habilitado | bool)

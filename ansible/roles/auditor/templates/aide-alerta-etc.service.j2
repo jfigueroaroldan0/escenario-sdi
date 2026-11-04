@@ -1,0 +1,9 @@
+# Gestionado por Ansible.
+[Unit]
+Description=Comprueba /etc con AIDE y avisa por correo de los cambios
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/aide-alerta-etc.sh

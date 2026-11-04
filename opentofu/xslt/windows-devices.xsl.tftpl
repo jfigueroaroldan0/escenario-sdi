@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<!-- Fichero plantilla (lo renderiza windows.tf con templatefile). El provider
+     libvirt no distingue CD-ROM ni bus de disco: por defecto engancha todos los
+     discos como virtio. Windows no ve virtio sin drivers, así que reescribimos:
+       - el disco del sistema (.qcow2) -> SATA (sda), device='disk', type='volume'
+       - los tres ISO                  -> SATA, device='cdrom', solo lectura,
+                                          type='file' con ruta absoluta
+     El orden de arranque (cdrom, hd) lo pone boot_device en windows.tf.
+
+     POR QUÉ type='file' en los CD-ROM y no 'volume':
+     el provider dmacvicar/libvirt (v0.8.x) CASCA al LEER el dominio (nil pointer
+     en resource_libvirt_domain.go) porque en la rama de cdrom lee Source.File y
+     da por hecho type='file'. Con type='volume' ese puntero es nil y revienta
+     (import/refresh/apply del dominio). Emitiéndolos como 'file' con la ruta del
+     ISO, la lectura funciona. El disco de sistema es device='disk', va por otra
+     rama (Source.Volume) y con type='volume' se lee bien. -->
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:output omit-xml-declaration="yes" indent="yes"/>
+
+  <!-- Identidad: copia todo tal cual salvo lo que reescribimos abajo -->
+  <xsl:template match="node()|@*">
+    <xsl:copy>
+      <xsl:apply-templates select="node()|@*"/>
+    </xsl:copy>
+  </xsl:template>
+
+  <!-- Disco del sistema: se queda como volumen (esa rama del provider sí lee) -->
+  <xsl:template match="/domain/devices/disk[contains(source/@volume,'escenario-windows.qcow2')]">
+    <disk type="volume" device="disk">
+      <driver name="qemu" type="qcow2"/>
+      <xsl:copy-of select="source"/>
+      <target dev="sda" bus="sata"/>
+    </disk>
+  </xsl:template>
+
+  <!-- ISO de instalación de Windows -->
+  <xsl:template match="/domain/devices/disk[contains(source/@volume,'win10.iso')]">
+    <disk type="file" device="cdrom">
+      <driver name="qemu" type="raw"/>
+      <source file="${win10_iso}"/>
+      <target dev="sdb" bus="sata"/>
+      <readonly/>
+    </disk>
+  </xsl:template>
+
+  <!-- ISO del autounattend (+ firstlogon.ps1) -->
+  <xsl:template match="/domain/devices/disk[contains(source/@volume,'unattend.iso')]">
+    <disk type="file" device="cdrom">
+      <driver name="qemu" type="raw"/>
+      <source file="${unattend_iso}"/>
+      <target dev="sdc" bus="sata"/>
+      <readonly/>
+    </disk>
+  </xsl:template>
+
+  <!-- ISO virtio-win (guest tools) -->
+  <xsl:template match="/domain/devices/disk[contains(source/@volume,'virtio.iso')]">
+    <disk type="file" device="cdrom">
+      <driver name="qemu" type="raw"/>
+      <source file="${virtio_iso}"/>
+      <target dev="sdd" bus="sata"/>
+      <readonly/>
+    </disk>
+  </xsl:template>
+
+  <!-- El provider pone las tarjetas en virtio (Windows no lo ve sin drivers):
+       se cambian a e1000e, que Windows reconoce de fábrica -->
+  <xsl:template match="/domain/devices/interface/model/@type">
+    <xsl:attribute name="type">e1000e</xsl:attribute>
+  </xsl:template>
+</xsl:stylesheet>

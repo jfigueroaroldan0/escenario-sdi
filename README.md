@@ -74,18 +74,19 @@ ansible/
     ├── atacante/           convierte Debian en Kali (kali-rolling) + kali-linux-headless;
     │                       bloquea systemd-boot (llenaría la partición EFI) y configura la red
     │                       con systemd-networkd (tras pasar a Kali, la de netplan no se levanta)
-    ├── openvas/            Docker + Greenbone Community Containers y (opcional) alertas por
-    │                       correo: msmtp en el contenedor gvmd + filtro/alertas/tarea por GMP
+    ├── openvas/            Docker + Greenbone Community Containers
     └── auditor/            John the Ripper, Hydra y AIDE con su base de datos inicial
+                            y (opcional) alertas por correo: msmtp + timer periódico de /etc
 ```
 
-## Alertas por correo (opcional)
+## Alertas por correo en las VMs (opcional)
 
-Tanto el SDI como OpenVAS pueden avisar por correo (Fase 7 del SDI y sección de alertas de
-OpenVAS en Notion). Es **opcional** y está apagado por defecto: solo se configura si se
-define `smtp_password` en `group_vars/all` (una **contraseña de aplicación de Gmail**, 16
-letras sin espacios, con la verificación en dos pasos activada en la cuenta remitente). Lo
-suyo es cifrarla con ansible-vault y no dejarla en claro:
+Los servicios de detección y auditoría configurados directamente en las **máquinas virtuales**
+pueden avisar por correo automáticamente. Las alertas van **en las VMs y no en contenedores Docker**,
+usando clientes ligeros `msmtp` y servicios/timers nativos de `systemd`.
+Es **opcional** y está apagado por defecto: solo se configura si se define `smtp_password` en
+`group_vars/all` (una **contraseña de aplicación de Gmail**, 16 letras sin espacios, con la
+verificación en dos pasos activada en la cuenta remitente). Lo suyo es cifrarla con ansible-vault:
 
 ```bash
 ansible-vault encrypt_string 'abcdefghijklmnop' --name smtp_password
@@ -93,18 +94,15 @@ ansible-vault encrypt_string 'abcdefghijklmnop' --name smtp_password
 
 Con `smtp_password` puesto y relanzando `ansible-playbook site.yaml`:
 
-- **SDI**: instala `msmtp` y deja un servicio `snort-mail` que vigila `alert_fast.txt` y manda
-  un correo por cada alerta **grave** (las reglas con `priority:1` de `local.rules`: `/admin`
-  y la fuerza bruta a PostgreSQL). El ruido (ping, acceso web normal) se queda solo en el log.
-- **OpenVAS**: monta el `msmtprc` dentro del contenedor `gvmd` (que ya trae `msmtp` y
-  `sendmail`) y crea por GMP, de forma idempotente, el filtro *Severidad alta*, dos alertas
-  (*Informe de escaneo* → adjunta PDF siempre; *Aviso de severidad alta* → solo si hay
-  severidad ≥ 7.0, con el informe TXT filtrado), un objetivo para la víctima y una tarea
-  *Full and fast* con las dos alertas asociadas.
+- **SDI (Snort 3)**: instala `msmtp` y deja un servicio `snort-mail` que vigila `alert_fast.txt`
+  y manda un correo por cada alerta **grave** (las reglas con `priority:1` de `local.rules`: `/admin`,
+  escaneo de puertos, DoS HTTP y fuerza bruta a PostgreSQL o SSH). El ruido (ping, acceso web normal)
+  se queda solo en el log.
+- **Auditor (AIDE)**: instala `msmtp` y activa un timer `aide-alerta-etc.timer` que comprueba
+  periódicamente la integridad de `/etc` contra su base de datos de referencia y manda un correo
+  si detecta altas, modificaciones o borrados de ficheros.
 
-Remitente y destinatario se configuran en `group_vars/all` (`smtp_remitente`,
-`smtp_destinatario`). Prueba rápida de OpenVAS: lanzar la tarea *Escaneo victima* desde la web;
-al terminar llegan los correos (necesita los feeds ya cargados).
+Remitente y destinatario se configuran en `group_vars/all` (`smtp_remitente`, `smtp_destinatario`).
 
 ## Requisitos
 
