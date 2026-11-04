@@ -1,0 +1,49 @@
+# Alertas por correo de OpenVAS: servicio vigilante nativo en la VM (fuera de Docker)
+# que consulta los informes por el socket de gvmd y envía correos mediante msmtp.
+# Se incluye solo si correo_habilitado (hay smtp_password).
+
+- name: Instalar msmtp (cliente SMTP) en la máquina de OpenVAS
+  apt:
+    name:
+      - msmtp
+      - msmtp-mta
+    state: present
+
+- name: Configurar msmtp (/etc/msmtprc) en la VM de OpenVAS
+  ansible.builtin.template:
+    src: msmtprc.j2
+    dest: /etc/msmtprc
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Fichero de log de msmtp
+  ansible.builtin.copy:
+    content: ""
+    dest: /var/log/msmtp.log
+    force: no
+    mode: '0640'
+
+- name: Script de alertas de OpenVAS en la VM (openvas-mail.py)
+  ansible.builtin.template:
+    src: openvas-mail.py.j2
+    dest: /usr/local/bin/openvas-mail.py
+    owner: root
+    group: root
+    mode: '0755'
+  notify: restart openvas-mail
+
+- name: Servicio systemd de alertas de OpenVAS en la VM
+  ansible.builtin.template:
+    src: openvas-mail.service.j2
+    dest: /etc/systemd/system/openvas-mail.service
+    mode: '0644'
+  notify: restart openvas-mail
+
+- name: Arrancar y habilitar openvas-mail en la VM
+  ansible.builtin.systemd:
+    name: openvas-mail
+    state: started
+    enabled: yes
+    daemon_reload: yes

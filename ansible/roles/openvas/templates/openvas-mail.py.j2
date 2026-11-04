@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+# Gestionado por Ansible.
+# openvas-mail.py - Vigilante nativo en la VM de OpenVAS.
+# Escucha los eventos de finalización de tareas y envía informes/alertas por correo usando msmtp.
+import os
+import sys
+import time
+import re
+import socket
+import subprocess
+import xml.etree.ElementTree as ET
+from datetime import datetime
+
+ADMIN_USER = "{{ openvas_admin_user | default('admin') }}"
+ADMIN_PASS = "{{ openvas_admin_password }}"
+SMTP_DEST = "{{ smtp_destinatario }}"
+SMTP_FROM = "{{ smtp_remitente }}"
+SOCKET_PATH = "/var/lib/docker/volumes/greenbone-community-edition_gvmd_socket_vol/_data/gvmd.sock"
+LOG_FILE = "/var/log/openvas-mail.log"
+
+def log(msg):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = f"[{ts}] {msg}"
+    print(entry, flush=True)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(entry + "\n")
+    except Exception:
+        pass
+
+def gmp_cmd(cmd_xml, end_tag):
+    if not os.path.exists(SOCKET_PATH):
+        raise FileNotFoundError(f"Socket no encontrado en {SOCKET_PATH}")
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(60.0)
+    s.connect(SOCKET_PATH)
+    try:
+        auth = f"<authenticate><credentials><username>{ADMIN_USER}</username><password>{ADMIN_PASS}</password></credentials></authenticate>\n".encode("utf-8")
+        s.sendall(auth)
+        auth_resp = b""
+        while b"</authenticate_response>" not in auth_resp:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            auth_resp += chunk
+
+        s.sendall(cmd_xml.encode("utf-8") + b"\n")
+        resp = b""
+        end_bytes = end_tag.encode("utf-8")
+        while end_bytes not in resp:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            resp += chunk
+        return resp.decode("utf-8", errors="ignore")
+    finally:
+        s.close()
+
+def send_email(subject, body):
+    msg = f"To: {SMTP_DEST}\nFrom: {SMTP_FROM}\nSubject: {subject}\nContent-Type: text/plain; charset=UTF-8\n\n{body}\n"
+    p = subprocess.Popen(["/usr/bin/msmtp", "-t"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = p.communicate(msg.encode("utf-8"))
+    if p.returncode != 0:
+        log(f"Error al enviar correo con msmtp (rc={p.returncode}): {stderr.decode(errors='ignore').strip()}")
+    else:
+        log(f"Correo enviado exitosamente a {SMTP_DEST} - Asunto: '{subject}'")
+
+def process_task(task_id, task_name=None):
+    xml_data = gmp_cmd(f'<get_reports task_id="{task_id}" details="1"/>', '</get_reports_response>')
+    root = ET.fromstring(xml_data)
+    report = root.find(".//report/report")
+    if report is None:
+        log(f"No se encontró informe en GMP para la tarea {task_id}")
+        return
+
+    if not task_name:
+        task_name = report.findtext("task/name", f"Tarea {task_id}")
+
+    scan_start = report.findtext("scan_start", "N/D")
+    scan_end = report.findtext("scan_end", "N/D")
+    sev = report.findtext("severity/full", "0.0")
+    try:
+        sev_float = float(sev)
+    except ValueError:
+        sev_float = 0.0
+
+    rc = report.find("result_count")
+    high = rc.findtext("high/full", "0") if rc is not None else "0"
+    med = rc.findtext("medium/full", "0") if rc is not None else "0"
+    low = rc.findtext("low/full", "0") if rc is not None else "0"
+    log_count = rc.findtext("log/full", "0") if rc is not None else "0"
+
+    hosts = set()
+    for h in report.findall(".//host/ip"):
+        if h.text:
+            hosts.add(h.text)
+    target_hosts = ", ".join(sorted(hosts)) if hosts else "N/D"
+
+    vulns = []
+    for r in root.findall(".//result"):
+        threat = r.findtext("threat", "")
+        if threat in ["High", "Medium"]:
+            v_name = r.findtext("name", "")
+            v_sev = r.findtext("severity", "")
+            v_port = r.findtext("port", "")
+            v_host = r.findtext("host", "")
+            vulns.append(f"  [{threat.upper()}] (Sev: {v_sev}) {v_name} en {v_host}:{v_port}")
+
+    if not vulns and float(low) > 0:
+        for r in root.findall(".//result"):
+            threat = r.findtext("threat", "")
+            if threat == "Low":
+                v_name = r.findtext("name", "")
+                v_sev = r.findtext("severity", "")
+                v_port = r.findtext("port", "")
+                v_host = r.findtext("host", "")
+                vulns.append(f"  [LOW] (Sev: {v_sev}) {v_name} en {v_host}:{v_port}")
+                if len(vulns) >= 5:
+                    break
+
+    vulns_str = "\n".join(vulns) if vulns else "  No se detectaron vulnerabilidades graves (solo registros informativos)."
+
+    if sev_float >= 7.0:
+        subject = f"[OpenVAS] ¡ALERTA! Vulnerabilidades de severidad alta en '{task_name}' (Sev: {sev})"
+    else:
+        subject = f"[OpenVAS] Informe de escaneo: '{task_name}' (Sev: {sev})"
+
+    body = f"""============================================================
+INFORME DE ESCANEO DE VULNERABILIDADES - OPENVAS
+============================================================
+Tarea:      {task_name}
+ID Tarea:   {task_id}
+Objetivo:   {target_hosts}
+Inicio:     {scan_start}
+Fin:        {scan_end}
+Severidad:  {sev}
+
+Resumen de resultados:
+  - Severidad Alta (High):     {high}
+  - Severidad Media (Medium):  {med}
+  - Severidad Baja (Low):      {low}
+  - Informativas (Log):        {log_count}
+
+Vulnerabilidades destacadas:
+------------------------------------------------------------
+{vulns_str}
+------------------------------------------------------------
+Alerta generada y enviada directamente desde la máquina virtual OpenVAS ({SMTP_FROM}).
+"""
+    send_email(subject, body)
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        log("Modo test: buscando última tarea finalizada...")
+        try:
+            xml_tasks = gmp_cmd("<get_tasks/>", "</get_tasks_response>")
+            root_t = ET.fromstring(xml_tasks)
+            found = False
+            for t in root_t.findall(".//task"):
+                st = t.findtext("status", "")
+                if st == "Done":
+                    tid = t.get("id")
+                    tname = t.findtext("name", "")
+                    log(f"Generando alerta de prueba a partir de tarea finalizada '{tname}' ({tid})")
+                    process_task(tid, tname)
+                    found = True
+                    break
+            if not found:
+                log("No se encontraron tareas con estado Done; enviando correo de prueba...")
+                send_email("[OpenVAS] Prueba de alertas en VM", "Prueba de envío de correo nativo desde la VM de OpenVAS.")
+        except Exception as e:
+            log(f"Error en test: {e}")
+        sys.exit(0)
+
+    log("Iniciando servicio de alertas nativas de OpenVAS en la VM...")
+    cmd = ["docker", "logs", "-f", "--tail", "0", "greenbone-community-edition-gvmd-1"]
+    pattern = re.compile(r"Status of task (.+?) \(([0-9a-fA-F-]+)\) has changed to Done")
+
+    while True:
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in proc.stdout:
+                m = pattern.search(line)
+                if m:
+                    task_name = m.group(1)
+                    task_id = m.group(2)
+                    log(f"Detectada tarea completada: '{task_name}' ({task_id})")
+                    # Breve pausa para asegurar commit en BD de reportes
+                    time.sleep(2)
+                    try:
+                        process_task(task_id, task_name)
+                    except Exception as e:
+                        log(f"Error procesando informe de tarea {task_id}: {e}")
+            proc.wait()
+        except Exception as e:
+            log(f"Error en vigilancia de eventos: {e}. Reintentando en 5 segundos...")
+        time.sleep(5)
+
+if __name__ == "__main__":
+    main()

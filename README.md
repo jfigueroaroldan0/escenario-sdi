@@ -75,6 +75,7 @@ ansible/
     │                       bloquea systemd-boot (llenaría la partición EFI) y configura la red
     │                       con systemd-networkd (tras pasar a Kali, la de netplan no se levanta)
     ├── openvas/            Docker + Greenbone Community Containers
+    │                       y (opcional) alertas por correo en la VM: msmtp + vigilante openvas-mail
     └── auditor/            John the Ripper, Hydra y AIDE con su base de datos inicial
                             y (opcional) alertas por correo: msmtp + timer periódico de /etc
 ```
@@ -101,6 +102,10 @@ Con `smtp_password` puesto y relanzando `ansible-playbook site.yaml`:
 - **Auditor (AIDE)**: instala `msmtp` y activa un timer `aide-alerta-etc.timer` que comprueba
   periódicamente la integridad de `/etc` contra su base de datos de referencia y manda un correo
   si detecta altas, modificaciones o borrados de ficheros.
+- **OpenVAS**: instala `msmtp` en la máquina virtual y activa un servicio vigilante nativo
+  `openvas-mail.service` que escucha eventos de finalización de escaneos a través del socket de
+  `gvmd` y envía automáticamente un informe detallado por correo (destacando alertas de severidad alta
+  si la puntuación es ≥ 7.0), todo gestionado íntegramente en la VM fuera de los contenedores Docker.
 
 Remitente y destinatario se configuran en `group_vars/all` (`smtp_remitente`, `smtp_destinatario`).
 

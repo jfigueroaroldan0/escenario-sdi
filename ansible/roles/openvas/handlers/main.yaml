@@ -1,0 +1,6 @@
+# Handlers para el rol de OpenVAS
+- name: restart openvas-mail
+  ansible.builtin.systemd:
+    name: openvas-mail
+    state: restarted
+    daemon_reload: yes

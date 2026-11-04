@@ -103,3 +103,7 @@
   until: gsa.status == 200
   retries: 30
   delay: 10
+
+- name: Configurar alertas de correo en la máquina de OpenVAS (fuera de Docker)
+  ansible.builtin.include_tasks: correo.yaml
+  when: correo_habilitado
